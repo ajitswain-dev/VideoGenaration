@@ -11,13 +11,19 @@ import com.ajit.springAI.VideoGenaration.controller.ProjectController;
 import com.ajit.springAI.VideoGenaration.model.ApprovalRequest;
 import com.ajit.springAI.VideoGenaration.model.ContentBrief;
 import com.ajit.springAI.VideoGenaration.model.CreateProjectRequest;
+import com.ajit.springAI.VideoGenaration.model.MediaJob;
+import com.ajit.springAI.VideoGenaration.model.MediaJobStatus;
 import com.ajit.springAI.VideoGenaration.model.ProjectRecord;
 import com.ajit.springAI.VideoGenaration.model.ProjectStatus;
 import com.ajit.springAI.VideoGenaration.model.Scene;
+import com.ajit.springAI.VideoGenaration.model.GenerationStatus;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementRequest;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementResponse;
 import com.ajit.springAI.VideoGenaration.model.ScriptDraft;
+import com.ajit.springAI.VideoGenaration.model.VideoOutputMetadata;
 import com.ajit.springAI.VideoGenaration.service.VideoGenerationService;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -194,9 +200,80 @@ class ProjectControllerTest {
         assertEquals(HttpStatus.OK, approvalResponse.getStatusCode());
         assertEquals(ProjectStatus.APPROVED, approvalResponse.getBody().getStatus());
 
-        ResponseEntity<String> productionResponse = controller.startVideoGeneration(project.getId(), 1);
-        assertEquals(HttpStatus.OK, productionResponse.getStatusCode());
-        assertEquals("Video generation started for approved version 1.", productionResponse.getBody());
+        MediaJob job = new MediaJob();
+        job.setId("job-1");
+        job.setProjectId(project.getId());
+        job.setVersionNumber(1);
+        job.setStatus(MediaJobStatus.QUEUED);
+        job.setProgress(0);
+        job.setMessage("Queued for rendering");
+        when(service.enqueueVideoGeneration(any(ProjectRecord.class), any(ScriptDraft.class))).thenReturn(job);
+
+        ResponseEntity<MediaJob> productionResponse = controller.startVideoGeneration(project.getId(), 1);
+        assertEquals(HttpStatus.ACCEPTED, productionResponse.getStatusCode());
+        assertEquals("job-1", productionResponse.getBody().getId());
+        assertEquals(MediaJobStatus.QUEUED, productionResponse.getBody().getStatus());
+    }
+
+    @Test
+    void startVideoGeneration_shouldReportQuotaFailure() {
+        VideoGenerationService service = mock(VideoGenerationService.class);
+        ProjectController controller = new ProjectController(service);
+
+        ProjectRecord project = controller.createProject(newCreateProjectRequest()).getBody();
+
+        ScriptDraft draft = new ScriptDraft();
+        draft.setTitle("AI Launch");
+        draft.setScenes(List.of(new Scene()));
+        draft.setVersionNumber(1);
+        project.addVersion(draft);
+        project.setStatus(ProjectStatus.APPROVED);
+        project.setApprovedVersion(1);
+        project.setApprovedBy("alice");
+
+        when(service.enqueueVideoGeneration(any(ProjectRecord.class), any(ScriptDraft.class)))
+                .thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                        "Too many active jobs. Retry later."));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> controller.startVideoGeneration(project.getId(), 1));
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.getStatusCode());
+        assertEquals("Too many active jobs. Retry later.", exception.getReason());
+    }
+
+    @Test
+    void renderApprovedVersion_shouldPersistMetadataAndRenderDemoOutput() {
+        VideoGenerationService service = new VideoGenerationService(null);
+
+        ProjectRecord project = new ProjectRecord();
+        project.setId("project-456");
+        project.setProjectName("Demo Launch");
+        project.setStatus(ProjectStatus.APPROVED);
+        project.setApprovedVersion(1);
+        project.setApprovedBy("alice");
+
+        ScriptDraft draft = new ScriptDraft();
+        draft.setTitle("Demo Launch");
+        draft.setVersionNumber(1);
+        draft.setStatus("APPROVED");
+        Scene scene = new Scene();
+        scene.setSequence(1);
+        scene.setNarration("This launch changes the workflow.");
+        scene.setVisual("Founder reviewing metrics");
+        scene.setDuration("5s");
+        draft.setScenes(List.of(scene));
+
+        VideoOutputMetadata output = service.renderApprovedVersion(project, draft);
+
+        assertNotNull(output);
+        assertEquals("project-456", output.getProjectId());
+        assertEquals(1, output.getApprovedScriptVersion());
+        assertEquals("local-template", output.getProvider());
+        assertEquals("template-demo", output.getModel());
+        assertEquals(GenerationStatus.COMPLETED, output.getStatus());
+        assertNotNull(output.getOutputPath());
+        assertEquals(Boolean.TRUE,
+                Files.exists(Path.of(output.getOutputPath())) || Files.exists(Path.of(output.getMetadataPath())));
     }
 
     private CreateProjectRequest newCreateProjectRequest() {

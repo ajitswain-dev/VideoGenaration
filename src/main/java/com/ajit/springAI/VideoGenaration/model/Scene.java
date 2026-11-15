@@ -1,5 +1,8 @@
 package com.ajit.springAI.VideoGenaration.model;
 
+import jakarta.persistence.Embeddable;
+
+@Embeddable
 public class Scene {
     private int sequence;
     private String visual;

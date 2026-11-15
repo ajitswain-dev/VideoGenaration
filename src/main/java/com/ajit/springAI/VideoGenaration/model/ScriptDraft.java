@@ -1,14 +1,27 @@
 package com.ajit.springAI.VideoGenaration.model;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.Lob;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+@Embeddable
 public class ScriptDraft {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private String title;
     private String hook;
     private String narration;
-    private List<Scene> scenes = new ArrayList<>();
+
+    @Lob
+    @Column(name = "scenes_json", columnDefinition = "TEXT")
+    private String scenesJson;
+
     private String status;
     private String language;
     private Integer versionNumber;
@@ -23,7 +36,7 @@ public class ScriptDraft {
         this.title = title;
         this.hook = hook;
         this.narration = narration;
-        this.scenes = scenes;
+        this.setScenes(scenes);
         this.status = status;
         this.language = language;
     }
@@ -53,11 +66,24 @@ public class ScriptDraft {
     }
 
     public List<Scene> getScenes() {
-        return scenes;
+        if (scenesJson == null || scenesJson.isBlank()) {
+            return new ArrayList<>();
+        }
+
+        try {
+            return OBJECT_MAPPER.readValue(scenesJson, new TypeReference<List<Scene>>() {
+            });
+        } catch (JsonProcessingException e) {
+            return new ArrayList<>();
+        }
     }
 
     public void setScenes(List<Scene> scenes) {
-        this.scenes = scenes;
+        try {
+            this.scenesJson = (scenes == null || scenes.isEmpty()) ? "[]" : OBJECT_MAPPER.writeValueAsString(scenes);
+        } catch (JsonProcessingException e) {
+            this.scenesJson = "[]";
+        }
     }
 
     public String getStatus() {

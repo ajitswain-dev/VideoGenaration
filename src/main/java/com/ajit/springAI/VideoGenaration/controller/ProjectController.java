@@ -3,12 +3,14 @@ package com.ajit.springAI.VideoGenaration.controller;
 import com.ajit.springAI.VideoGenaration.model.ApprovalRequest;
 import com.ajit.springAI.VideoGenaration.model.ContentBrief;
 import com.ajit.springAI.VideoGenaration.model.CreateProjectRequest;
+import com.ajit.springAI.VideoGenaration.model.MediaJob;
 import com.ajit.springAI.VideoGenaration.model.ProjectRecord;
 import com.ajit.springAI.VideoGenaration.model.ProjectStatus;
 import com.ajit.springAI.VideoGenaration.model.RevisionRequest;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementRequest;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementResponse;
 import com.ajit.springAI.VideoGenaration.model.ScriptDraft;
+import com.ajit.springAI.VideoGenaration.repository.ProjectRecordRepository;
 import com.ajit.springAI.VideoGenaration.service.VideoGenerationService;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -16,9 +18,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,10 +37,18 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProjectController {
 
     private final VideoGenerationService videoGenerationService;
+    private final ProjectRecordRepository projectRecordRepository;
     private final Map<String, ProjectRecord> projects = new ConcurrentHashMap<>();
 
     public ProjectController(VideoGenerationService videoGenerationService) {
+        this(videoGenerationService, null);
+    }
+
+    @Autowired
+    public ProjectController(VideoGenerationService videoGenerationService,
+            ProjectRecordRepository projectRecordRepository) {
         this.videoGenerationService = videoGenerationService;
+        this.projectRecordRepository = projectRecordRepository;
     }
 
     @PostMapping("/projects")
@@ -58,7 +70,7 @@ public class ProjectController {
                 request.getLanguage(),
                 request.getStyle());
 
-        projects.put(projectId, project);
+        saveProject(project);
         return ResponseEntity.status(HttpStatus.CREATED).body(project);
     }
 
@@ -74,6 +86,7 @@ public class ProjectController {
 
         project.addVersion(generated);
         project.setStatus(ProjectStatus.IN_REVIEW);
+        saveProject(project);
         return ResponseEntity.ok(generated);
     }
 
@@ -105,11 +118,12 @@ public class ProjectController {
         project.getCurrentDraft().setStatus("APPROVED");
         project.getCurrentDraft().setApprovedBy(approvalRequest.getApprovedBy());
         project.getCurrentDraft().setApprovedAt(project.getApprovedAt());
+        saveProject(project);
         return ResponseEntity.ok(project);
     }
 
     @PostMapping("/projects/{id}/start-production")
-    public ResponseEntity<String> startVideoGeneration(@PathVariable String id,
+    public ResponseEntity<MediaJob> startVideoGeneration(@PathVariable String id,
             @RequestParam(value = "versionNumber", required = false) Integer versionNumber) {
         ProjectRecord project = requireProject(id);
         int requestedVersion = versionNumber != null ? versionNumber
@@ -121,10 +135,41 @@ public class ProjectController {
         return startVideoGeneration(id, requestedVersion);
     }
 
-    ResponseEntity<String> startVideoGeneration(String id, int requestedVersion) {
+    ResponseEntity<MediaJob> startVideoGeneration(String id, int requestedVersion) {
         ProjectRecord project = requireProject(id);
         requireApprovedVersion(project, requestedVersion);
-        return ResponseEntity.ok("Video generation started for approved version " + requestedVersion + ".");
+
+        ScriptDraft approvedDraft = project.getVersions().stream()
+                .filter(draft -> draft.getVersionNumber() != null && draft.getVersionNumber() == requestedVersion)
+                .findFirst()
+                .orElse(project.getCurrentDraft());
+
+        if (approvedDraft == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No approved draft exists for version " + requestedVersion + ".");
+        }
+
+        MediaJob job = videoGenerationService.enqueueVideoGeneration(project, approvedDraft);
+        return ResponseEntity.accepted().body(job);
+    }
+
+    @GetMapping("/projects/{id}/jobs")
+    public ResponseEntity<List<MediaJob>> getJobs(@PathVariable String id) {
+        requireProject(id);
+        return ResponseEntity.ok(videoGenerationService.getJobsForProject(id));
+    }
+
+    @GetMapping("/projects/{id}/jobs/{jobId}")
+    public ResponseEntity<MediaJob> getJob(@PathVariable String id, @PathVariable String jobId) {
+        requireProject(id);
+        return ResponseEntity.ok(videoGenerationService.getJob(jobId));
+    }
+
+    @DeleteMapping("/projects/{id}/jobs/{jobId}")
+    public ResponseEntity<MediaJob> cancelJob(@PathVariable String id, @PathVariable String jobId) {
+        requireProject(id);
+        MediaJob job = videoGenerationService.cancelJob(jobId);
+        return ResponseEntity.ok(job);
     }
 
     @GetMapping("/projects/{id}")
@@ -154,6 +199,7 @@ public class ProjectController {
         project.setApprovedBy(null);
         project.setApprovedAt(null);
         project.setStatus(ProjectStatus.IN_REVIEW);
+        saveProject(project);
         return ResponseEntity.ok(revisedDraft);
     }
 
@@ -186,11 +232,25 @@ public class ProjectController {
     }
 
     private ProjectRecord requireProject(String id) {
+        if (projectRecordRepository != null) {
+            return projectRecordRepository.findById(id)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found: " + id));
+        }
         ProjectRecord project = projects.get(id);
         if (project == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found: " + id);
         }
         return project;
+    }
+
+    private void saveProject(ProjectRecord project) {
+        if (projectRecordRepository != null) {
+            projectRecordRepository.save(project);
+            return;
+        }
+        if (project != null) {
+            projects.put(project.getId(), project);
+        }
     }
 
     private void validateCreateRequest(CreateProjectRequest request) {

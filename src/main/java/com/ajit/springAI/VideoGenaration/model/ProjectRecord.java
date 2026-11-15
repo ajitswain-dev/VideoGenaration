@@ -1,24 +1,82 @@
 package com.ajit.springAI.VideoGenaration.model;
 
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+@Entity
+@Table(name = "project_records")
 public class ProjectRecord {
+    @Id
     private String id;
+
+    @Column(name = "project_name")
     private String projectName;
+
+    @Column(length = 1000)
     private String topic;
+
+    @Column(length = 500)
     private String audience;
+
+    @Column(length = 500)
     private String tone;
+
+    @Column(length = 100)
     private String duration;
+
+    @Column(length = 100)
     private String language;
+
+    @Column(length = 200)
     private String style;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private ProjectStatus status = ProjectStatus.DRAFT;
+
+    @Column(name = "approved_version")
     private Integer approvedVersion;
+
+    @Column(name = "approved_by")
     private String approvedBy;
+
+    @Column(name = "approved_at")
     private Instant approvedAt;
+
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "title", column = @Column(name = "current_draft_title")),
+            @AttributeOverride(name = "hook", column = @Column(name = "current_draft_hook")),
+            @AttributeOverride(name = "narration", column = @Column(name = "current_draft_narration")),
+            @AttributeOverride(name = "status", column = @Column(name = "current_draft_status")),
+            @AttributeOverride(name = "language", column = @Column(name = "current_draft_language")),
+            @AttributeOverride(name = "versionNumber", column = @Column(name = "current_draft_version_number")),
+            @AttributeOverride(name = "approvedBy", column = @Column(name = "current_draft_approved_by")),
+            @AttributeOverride(name = "approvedAt", column = @Column(name = "current_draft_approved_at"))
+    })
     private ScriptDraft currentDraft;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "project_versions", joinColumns = @JoinColumn(name = "project_id"))
     private List<ScriptDraft> versions = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "project_outputs", joinColumns = @JoinColumn(name = "project_id"))
+    private List<VideoOutputMetadata> outputs = new ArrayList<>();
 
     public ProjectRecord() {
     }
@@ -145,6 +203,20 @@ public class ProjectRecord {
 
     public void setVersions(List<ScriptDraft> versions) {
         this.versions = versions;
+    }
+
+    public List<VideoOutputMetadata> getOutputs() {
+        return outputs;
+    }
+
+    public void setOutputs(List<VideoOutputMetadata> outputs) {
+        this.outputs = outputs;
+    }
+
+    public void addGeneratedOutput(VideoOutputMetadata output) {
+        if (output != null) {
+            this.outputs.add(output);
+        }
     }
 
     public void addVersion(ScriptDraft draft) {
