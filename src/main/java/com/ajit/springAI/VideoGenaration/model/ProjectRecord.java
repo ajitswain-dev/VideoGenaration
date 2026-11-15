@@ -1,5 +1,6 @@
 package com.ajit.springAI.VideoGenaration.model;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,6 +13,10 @@ public class ProjectRecord {
     private String duration;
     private String language;
     private String style;
+    private ProjectStatus status = ProjectStatus.DRAFT;
+    private Integer approvedVersion;
+    private String approvedBy;
+    private Instant approvedAt;
     private ScriptDraft currentDraft;
     private List<ScriptDraft> versions = new ArrayList<>();
 
@@ -94,6 +99,38 @@ public class ProjectRecord {
         this.style = style;
     }
 
+    public ProjectStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(ProjectStatus status) {
+        this.status = status;
+    }
+
+    public Integer getApprovedVersion() {
+        return approvedVersion;
+    }
+
+    public void setApprovedVersion(Integer approvedVersion) {
+        this.approvedVersion = approvedVersion;
+    }
+
+    public String getApprovedBy() {
+        return approvedBy;
+    }
+
+    public void setApprovedBy(String approvedBy) {
+        this.approvedBy = approvedBy;
+    }
+
+    public Instant getApprovedAt() {
+        return approvedAt;
+    }
+
+    public void setApprovedAt(Instant approvedAt) {
+        this.approvedAt = approvedAt;
+    }
+
     public ScriptDraft getCurrentDraft() {
         return currentDraft;
     }
@@ -112,8 +149,16 @@ public class ProjectRecord {
 
     public void addVersion(ScriptDraft draft) {
         if (draft != null) {
+            if (draft.getVersionNumber() == null) {
+                draft.setVersionNumber(this.versions.size() + 1);
+            }
             this.versions.add(draft);
             this.currentDraft = draft;
+            this.status = ProjectStatus.IN_REVIEW;
+            if (draft.getStatus() == null || draft.getStatus().equalsIgnoreCase("generated")
+                    || draft.getStatus().equalsIgnoreCase("revised")) {
+                draft.setStatus("IN_REVIEW");
+            }
         }
     }
 }

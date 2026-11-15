@@ -1,14 +1,17 @@
 package com.ajit.springAI.VideoGenaration.controller;
 
+import com.ajit.springAI.VideoGenaration.model.ApprovalRequest;
 import com.ajit.springAI.VideoGenaration.model.ContentBrief;
 import com.ajit.springAI.VideoGenaration.model.CreateProjectRequest;
 import com.ajit.springAI.VideoGenaration.model.ProjectRecord;
+import com.ajit.springAI.VideoGenaration.model.ProjectStatus;
 import com.ajit.springAI.VideoGenaration.model.RevisionRequest;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementRequest;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementResponse;
 import com.ajit.springAI.VideoGenaration.model.ScriptDraft;
 import com.ajit.springAI.VideoGenaration.service.VideoGenerationService;
 import jakarta.validation.Valid;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -64,11 +68,63 @@ public class ProjectController {
         validateBrief(brief);
 
         ScriptDraft generated = videoGenerationService.generateScript(brief);
-        generated.setStatus("generated");
+        generated.setStatus("IN_REVIEW");
         generated.setLanguage(brief.getLanguage());
+        generated.setVersionNumber(project.getVersions().size() + 1);
 
         project.addVersion(generated);
+        project.setStatus(ProjectStatus.IN_REVIEW);
         return ResponseEntity.ok(generated);
+    }
+
+    @PostMapping("/projects/{id}/approve")
+    public ResponseEntity<ProjectRecord> approveProject(@PathVariable String id,
+            @Valid @RequestBody ApprovalRequest approvalRequest) {
+        ProjectRecord project = requireProject(id);
+        if (project.getCurrentDraft() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Project has no draft to approve.");
+        }
+        if (approvalRequest == null || approvalRequest.getVersionNumber() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A valid versionNumber is required.");
+        }
+        if (!StringUtils.hasText(approvalRequest.getApprovedBy())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "approvedBy is required.");
+        }
+
+        int latestVersion = project.getVersions().size();
+        if (approvalRequest.getVersionNumber() != latestVersion) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Submitted version " + approvalRequest.getVersionNumber() + " is stale. Latest version is "
+                            + latestVersion + ".");
+        }
+
+        project.setStatus(ProjectStatus.APPROVED);
+        project.setApprovedVersion(approvalRequest.getVersionNumber());
+        project.setApprovedBy(approvalRequest.getApprovedBy());
+        project.setApprovedAt(Instant.now());
+        project.getCurrentDraft().setStatus("APPROVED");
+        project.getCurrentDraft().setApprovedBy(approvalRequest.getApprovedBy());
+        project.getCurrentDraft().setApprovedAt(project.getApprovedAt());
+        return ResponseEntity.ok(project);
+    }
+
+    @PostMapping("/projects/{id}/start-production")
+    public ResponseEntity<String> startVideoGeneration(@PathVariable String id,
+            @RequestParam(value = "versionNumber", required = false) Integer versionNumber) {
+        ProjectRecord project = requireProject(id);
+        int requestedVersion = versionNumber != null ? versionNumber
+                : project.getCurrentDraft() != null
+                        && project.getCurrentDraft().getVersionNumber() != null
+                                ? project.getCurrentDraft().getVersionNumber()
+                                : project.getVersions().size();
+
+        return startVideoGeneration(id, requestedVersion);
+    }
+
+    ResponseEntity<String> startVideoGeneration(String id, int requestedVersion) {
+        ProjectRecord project = requireProject(id);
+        requireApprovedVersion(project, requestedVersion);
+        return ResponseEntity.ok("Video generation started for approved version " + requestedVersion + ".");
     }
 
     @GetMapping("/projects/{id}")
@@ -91,8 +147,13 @@ public class ProjectController {
         }
 
         ScriptDraft revisedDraft = videoGenerationService.reviseScript(project.getCurrentDraft(), revisionRequest);
-        revisedDraft.setStatus("revised");
+        revisedDraft.setStatus("IN_REVIEW");
+        revisedDraft.setVersionNumber(project.getVersions().size() + 1);
         project.addVersion(revisedDraft);
+        project.setApprovedVersion(null);
+        project.setApprovedBy(null);
+        project.setApprovedAt(null);
+        project.setStatus(ProjectStatus.IN_REVIEW);
         return ResponseEntity.ok(revisedDraft);
     }
 
@@ -143,6 +204,17 @@ public class ProjectController {
                 || !StringUtils.hasText(request.getLanguage())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "topic, audience, tone, duration and language are required.");
+        }
+    }
+
+    private void requireApprovedVersion(ProjectRecord project, int requestedVersion) {
+        if (project.getStatus() != ProjectStatus.APPROVED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Video generation cannot start until the project is approved.");
+        }
+        if (project.getApprovedVersion() == null || project.getApprovedVersion() != requestedVersion) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Submitted version " + requestedVersion + " is stale or not approved.");
         }
     }
 

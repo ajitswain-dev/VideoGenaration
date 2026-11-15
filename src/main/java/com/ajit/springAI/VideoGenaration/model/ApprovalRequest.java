@@ -1,6 +1,7 @@
 package com.ajit.springAI.VideoGenaration.model;
 
 public class ApprovalRequest {
+    private int versionNumber;
     private String projectName;
     private String scriptId;
     private String approvedBy;
@@ -16,6 +17,14 @@ public class ApprovalRequest {
         this.approvedBy = approvedBy;
         this.approved = approved;
         this.comments = comments;
+    }
+
+    public int getVersionNumber() {
+        return versionNumber;
+    }
+
+    public void setVersionNumber(int versionNumber) {
+        this.versionNumber = versionNumber;
     }
 
     public String getProjectName() {

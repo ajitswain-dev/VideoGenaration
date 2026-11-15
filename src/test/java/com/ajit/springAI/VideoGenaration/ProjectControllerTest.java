@@ -8,9 +8,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.ajit.springAI.VideoGenaration.controller.ProjectController;
+import com.ajit.springAI.VideoGenaration.model.ApprovalRequest;
 import com.ajit.springAI.VideoGenaration.model.ContentBrief;
 import com.ajit.springAI.VideoGenaration.model.CreateProjectRequest;
 import com.ajit.springAI.VideoGenaration.model.ProjectRecord;
+import com.ajit.springAI.VideoGenaration.model.ProjectStatus;
 import com.ajit.springAI.VideoGenaration.model.Scene;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementRequest;
 import com.ajit.springAI.VideoGenaration.model.SceneImprovementResponse;
@@ -130,6 +132,71 @@ class ProjectControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("This scene is more energetic and punchy.", response.getBody().getImprovedText());
+    }
+
+    @Test
+    void startVideoGeneration_shouldRejectDraftOrRevisionBeforeApproval() {
+        VideoGenerationService service = mock(VideoGenerationService.class);
+        ProjectController controller = new ProjectController(service);
+
+        ProjectRecord project = controller.createProject(newCreateProjectRequest()).getBody();
+
+        ScriptDraft draft = new ScriptDraft();
+        draft.setTitle("AI Launch");
+        draft.setScenes(List.of(new Scene()));
+        draft.setVersionNumber(1);
+        project.addVersion(draft);
+        project.setStatus(ProjectStatus.IN_REVIEW);
+
+        assertThrows(ResponseStatusException.class, () -> controller.startVideoGeneration(project.getId(), 1));
+    }
+
+    @Test
+    void approveProject_shouldRejectStaleVersion() {
+        VideoGenerationService service = mock(VideoGenerationService.class);
+        ProjectController controller = new ProjectController(service);
+
+        ProjectRecord project = controller.createProject(newCreateProjectRequest()).getBody();
+
+        ScriptDraft v1 = new ScriptDraft();
+        v1.setTitle("AI Launch");
+        v1.setScenes(List.of(new Scene()));
+        v1.setVersionNumber(1);
+        project.addVersion(v1);
+        project.setStatus(ProjectStatus.IN_REVIEW);
+
+        ApprovalRequest approval = new ApprovalRequest();
+        approval.setVersionNumber(2);
+        approval.setApprovedBy("alice");
+
+        assertThrows(ResponseStatusException.class, () -> controller.approveProject(project.getId(), approval));
+    }
+
+    @Test
+    void startVideoGeneration_shouldOnlyAllowApprovedVersion() {
+        VideoGenerationService service = mock(VideoGenerationService.class);
+        ProjectController controller = new ProjectController(service);
+
+        ProjectRecord project = controller.createProject(newCreateProjectRequest()).getBody();
+
+        ScriptDraft draft = new ScriptDraft();
+        draft.setTitle("AI Launch");
+        draft.setScenes(List.of(new Scene()));
+        draft.setVersionNumber(1);
+        project.addVersion(draft);
+        project.setStatus(ProjectStatus.IN_REVIEW);
+
+        ApprovalRequest approval = new ApprovalRequest();
+        approval.setVersionNumber(1);
+        approval.setApprovedBy("alice");
+        ResponseEntity<ProjectRecord> approvalResponse = controller.approveProject(project.getId(), approval);
+
+        assertEquals(HttpStatus.OK, approvalResponse.getStatusCode());
+        assertEquals(ProjectStatus.APPROVED, approvalResponse.getBody().getStatus());
+
+        ResponseEntity<String> productionResponse = controller.startVideoGeneration(project.getId(), 1);
+        assertEquals(HttpStatus.OK, productionResponse.getStatusCode());
+        assertEquals("Video generation started for approved version 1.", productionResponse.getBody());
     }
 
     private CreateProjectRequest newCreateProjectRequest() {

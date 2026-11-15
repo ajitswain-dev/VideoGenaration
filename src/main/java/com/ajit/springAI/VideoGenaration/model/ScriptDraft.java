@@ -1,5 +1,6 @@
 package com.ajit.springAI.VideoGenaration.model;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,6 +11,9 @@ public class ScriptDraft {
     private List<Scene> scenes = new ArrayList<>();
     private String status;
     private String language;
+    private Integer versionNumber;
+    private String approvedBy;
+    private Instant approvedAt;
 
     public ScriptDraft() {
     }
@@ -70,5 +74,29 @@ public class ScriptDraft {
 
     public void setLanguage(String language) {
         this.language = language;
+    }
+
+    public Integer getVersionNumber() {
+        return versionNumber;
+    }
+
+    public void setVersionNumber(Integer versionNumber) {
+        this.versionNumber = versionNumber;
+    }
+
+    public String getApprovedBy() {
+        return approvedBy;
+    }
+
+    public void setApprovedBy(String approvedBy) {
+        this.approvedBy = approvedBy;
+    }
+
+    public Instant getApprovedAt() {
+        return approvedAt;
+    }
+
+    public void setApprovedAt(Instant approvedAt) {
+        this.approvedAt = approvedAt;
     }
 }
