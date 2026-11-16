@@ -95,10 +95,41 @@
     <div class="container">
       <div class="panel">
         <h2>Video Script Editor</h2>
-        <div class="toolbar">
+        <div class="toolbar" style="margin-bottom:12px;">
           <input id="projectId" type="text" placeholder="Project ID" value="demo-project" />
           <button id="loadProjectBtn">Load project</button>
           <button id="createSampleBtn" class="secondary">Create sample</button>
+        </div>
+
+        <div class="two-col">
+          <div>
+            <label for="projectName"><strong>Project name</strong></label>
+            <input id="projectName" type="text" value="AI Product Launch" />
+          </div>
+          <div>
+            <label for="topic"><strong>Topic</strong></label>
+            <input id="topic" type="text" value="How AI helps small teams launch faster" />
+          </div>
+          <div>
+            <label for="audience"><strong>Audience</strong></label>
+            <input id="audience" type="text" value="Founders and startup teams" />
+          </div>
+          <div>
+            <label for="tone"><strong>Tone</strong></label>
+            <input id="tone" type="text" value="confident and clear" />
+          </div>
+          <div>
+            <label for="duration"><strong>Duration</strong></label>
+            <input id="duration" type="text" value="30s" />
+          </div>
+          <div>
+            <label for="language"><strong>Language</strong></label>
+            <input id="language" type="text" value="English" />
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;">
+          <button id="generateDraftBtn">Generate draft from AI</button>
         </div>
       </div>
 
@@ -214,7 +245,8 @@
             throw new Error('Project not found');
           }
           const project = await response.json();
-          draft = project.currentDraft || sampleScript;
+          const loadedDraft = project.currentDraft || project.versions?.[project.versions.length - 1];
+          draft = loadedDraft || JSON.parse(JSON.stringify(sampleScript));
           if (!draft || !Array.isArray(draft.scenes)) {
             draft = JSON.parse(JSON.stringify(sampleScript));
           }
@@ -227,6 +259,77 @@
           renderScriptText();
           renderSceneList();
           setStatus('Project not found, using sample draft instead.', true);
+        }
+      }
+
+      async function generateProjectDraft() {
+        const projectName = document.getElementById('projectName').value.trim();
+        const topic = document.getElementById('topic').value.trim();
+        const audience = document.getElementById('audience').value.trim();
+        const tone = document.getElementById('tone').value.trim();
+        const duration = document.getElementById('duration').value.trim();
+        const language = document.getElementById('language').value.trim();
+
+        if (!topic || !audience || !tone || !duration || !language) {
+          setStatus('Please fill in topic, audience, tone, duration, and language.', true);
+          return;
+        }
+
+        const createProjectBody = {
+          projectName: projectName || topic,
+          topic,
+          audience,
+          tone,
+          duration,
+          language,
+          style: 'cinematic'
+        };
+
+        try {
+          setStatus('Creating project...');
+          const createResponse = await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(createProjectBody)
+          });
+
+          if (!createResponse.ok) {
+            const errorText = await createResponse.text();
+            throw new Error(errorText || 'Project creation failed');
+          }
+
+          const project = await createResponse.json();
+          currentProjectId = project.id;
+          document.getElementById('projectId').value = currentProjectId;
+
+          const brief = {
+            topic,
+            audience,
+            tone,
+            duration,
+            language,
+            style: 'cinematic'
+          };
+
+          setStatus('Sending brief to AI to generate the script...');
+          const draftResponse = await fetch(`/api/projects/${currentProjectId}/draft`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(brief)
+          });
+
+          if (!draftResponse.ok) {
+            const errorText = await draftResponse.text();
+            throw new Error(errorText || 'Draft generation failed');
+          }
+
+          draft = await draftResponse.json();
+          selectedSceneIndex = 0;
+          renderScriptText();
+          renderSceneList();
+          setStatus(`Project "${project.projectName || projectName}" created and draft generated.`);
+        } catch (error) {
+          setStatus(error.message || 'Unable to generate draft from AI.', true);
         }
       }
 
@@ -268,6 +371,7 @@
       document.getElementById('saveScriptBtn').addEventListener('click', parseDraftFromEditor);
       document.getElementById('createSampleBtn').addEventListener('click', createSampleDraft);
       document.getElementById('loadProjectBtn').addEventListener('click', loadProject);
+      document.getElementById('generateDraftBtn').addEventListener('click', generateProjectDraft);
       document.getElementById('applySceneFixBtn').addEventListener('click', improveSelectedScene);
 
       createSampleDraft();

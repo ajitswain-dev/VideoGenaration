@@ -226,11 +226,6 @@ public class ProjectController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/editor")
-    public String editorPage() {
-        return "forward:/editor.html";
-    }
-
     private ProjectRecord requireProject(String id) {
         if (projectRecordRepository != null) {
             return projectRecordRepository.findById(id)
